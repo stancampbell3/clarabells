@@ -14,7 +14,7 @@ services:
     environment:
       - MODEL_DIR=/models
     volumes:
-      # Host models directory (persist models on host to avoid filling container layers)
+      # Host models directory
       - ./models:/models
       # Optional: mount local code for rapid dev (uncomment to enable). Be aware this will override files in the image.
       # - ./:/app:ro
