@@ -1,6 +1,9 @@
 # Use official slim Python image
 FROM python:3.11-slim
 
+# Allow selecting requirements file at build time (default to heavy model requirements)
+ARG REQUIREMENTS=requirements.txt
+
 # Environment
 ENV PYTHONUNBUFFERED=1 \
     MODEL_DIR=/models \
@@ -16,9 +19,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR ${APP_HOME}
 
 # Copy requirements and install runtime deps (keep model libs in requirements.txt)
-COPY requirements.txt ./
+COPY ${REQUIREMENTS} ./
 RUN python -m pip install --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir -r ${REQUIREMENTS}
 
 # Copy app source
 COPY . ${APP_HOME}
@@ -30,4 +33,3 @@ EXPOSE 8000
 
 # Default command to run the FastAPI app
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
-

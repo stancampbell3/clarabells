@@ -2,7 +2,10 @@ version: "3.8"
 
 services:
   web:
-    build: .
+    build:
+      context: .
+      args:
+        REQUIREMENTS: requirements.txt
     image: clara-web:latest
     container_name: clara_web
     restart: unless-stopped
@@ -21,3 +24,5 @@ services:
       timeout: 10s
       retries: 3
 
+# Tip: to build with the dev requirements (faster, smaller), run:
+# docker compose build --build-arg REQUIREMENTS=requirements-dev.txt
