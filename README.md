@@ -27,25 +27,75 @@ This project includes a `Dockerfile` and `docker-compose.yml` for running the ap
 
 Important: model storage should be mounted from the host to avoid filling the container image/layers. The compose setup mounts `./models` on the host into `/models` inside the container.
 
-Quick Docker commands:
+Quick Docker commands (dev-friendly):
 
 ```bash
 # create a local models dir (if you plan to persist models on host)
 mkdir -p ./models
 
-# build the image (first time or after changes)
-docker compose build
+# Build using the dev requirements (faster; avoids heavy ML libs)
+docker compose build --build-arg REQUIREMENTS=requirements-dev.txt
 
-# run in foreground
-docker compose up
-
-# run detached
+# Start the app (detached)
 docker compose up -d
 
-# stop and remove containers
+# Confirm container is running
+docker compose ps
+
+# Probe the health endpoint (should return {"status":"ok"})
+curl -sS http://127.0.0.1:8000/health
+
+# When done, stop everything
 docker compose down
 ```
 
 Notes:
-- Building the image will install the libraries in `requirements.txt`, which may include heavy ML packages (PyTorch, Transformers). Building may take a long time and require sufficient disk space.
-- If you want a faster dev iteration loop, consider using a lightweight `requirements-dev.txt` for building the image and mounting source or using a multi-stage approach to avoid installing large model libraries on every build.
+- Building with `requirements.txt` will install heavy ML packages (Transformers, PyTorch) and may take a long time and large disk space. For development, use `requirements-dev.txt` as shown above.
+- The compose file mounts `./models` -> `/models` so large models live on the host filesystem and don't bloat the image or commit history.
+
+# Push to GitHub (create `clarabells` repo)
+
+You can create and push this repository to GitHub under the name `clarabells`. Two options are shown below.
+
+Option A — Using GitHub CLI (`gh`) (recommended if you have `gh` installed and authenticated):
+
+```bash
+cd /home/stanc/Development/clara
+# create a public repo on GitHub, set remote origin, and push the current main branch
+gh repo create clarabells --public --source=. --remote=origin --push
+```
+
+Option B — Manual (use if you don't have `gh`):
+
+1. Create an empty repo named `clarabells` on GitHub through the web UI: https://github.com/new
+   - Name: clarabells
+   - Visibility: Public
+
+2. Add the remote and push:
+
+```bash
+cd /home/stanc/Development/clara
+# replace <your-username> with your GitHub username
+git remote add origin git@github.com:<your-username>/clarabells.git
+git push -u origin main
+```
+
+If you don't use SSH keys, use the HTTPS remote instead:
+
+```bash
+git remote add origin https://github.com/<your-username>/clarabells.git
+git push -u origin main
+```
+
+# After pushing
+- The GitHub Actions workflow at `.github/workflows/ci.yml` will run on push/PR to `main` and execute tests.
+- Optionally add a status badge to the top of this README once CI runs successfully:
+
+```markdown
+![CI](https://github.com/<your-username>/clarabells/actions/workflows/ci.yml/badge.svg)
+```
+
+
+--
+
+If you'd like, I can attempt to create and push the `clarabells` repo from this environment for you (will use `gh` if available, otherwise I'll try the git remote push). If you prefer to handle the GitHub repo creation yourself, tell me and I'll stop after committing the README change.
