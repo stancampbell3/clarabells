@@ -1,0 +1,23 @@
+version: "3.8"
+
+services:
+  web:
+    build: .
+    image: clara-web:latest
+    container_name: clara_web
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - MODEL_DIR=/models
+    volumes:
+      # Host models directory (persist models on host to avoid filling container layers)
+      - ./models:/models
+      # Optional: mount local code for rapid dev (uncomment to enable). Be aware this will override files in the image.
+      # - ./:/app:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+

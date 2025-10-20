@@ -33,3 +33,5 @@ Thumbs.db
 # Logs
 *.log
 
+# Large model storage (do not commit)
+models/

@@ -1,0 +1,24 @@
+# Exclude files from Docker build context
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.venv/
+venv/
+.envrc
+.git
+.gitignore
+.pytest_cache/
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Large model storage should not be sent to the Docker daemon as build context
+models/
+
+# Local editor folders
+.vscode/
+.idea/
+
