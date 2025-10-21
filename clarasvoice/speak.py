@@ -3,8 +3,37 @@ import tempfile
 import subprocess
 import os
 import argparse
+import json
+import platform
+import shutil
 
 def main():
+    config_path = os.path.join(os.path.dirname(__file__), 'claras_clutch.json')
+    if os.path.exists(config_path):
+        with open(config_path) as f:
+            config = json.load(f)
+        player_cmd = config['player_cmd']
+    else:
+        system = platform.system()
+        if system == 'Linux':
+            player_cmd = ['mpg123']
+        elif system == 'Darwin':
+            player_cmd = ['afplay']
+        elif system == 'Windows':
+            player_cmd = ['cmd', '/c', 'start', '/wait']
+        else:
+            raise RuntimeError(f"Unsupported OS: {system}. Supported: Linux, macOS, Windows.")
+
+        # Check if the player command is available
+        if system in ['Linux', 'Darwin']:
+            if not shutil.which(player_cmd[0]):
+                raise RuntimeError(f"Audio player '{player_cmd[0]}' not found. Install it (e.g., sudo apt install {player_cmd[0]} on Linux or ensure it's available on macOS).")
+        # For Windows, assume 'cmd' is available
+
+        config = {'player_cmd': player_cmd}
+        with open(config_path, 'w') as f:
+            json.dump(config, f)
+
     parser = argparse.ArgumentParser(description="Clarabells client to request and play audio.")
     parser.add_argument("--host", default="127.0.0.1", help="Server host (default: 127.0.0.1)")
     parser.add_argument("--port", type=int, default=8000, help="Server port (default: 8000)")
@@ -26,8 +55,8 @@ def main():
                 temp_file.write(chunk)
             temp_file_path = temp_file.name
 
-        # Play the audio using mpg123
-        subprocess.run(["mpg123", temp_file_path], check=True)
+        # Play the audio using the detected player
+        subprocess.run(player_cmd + [temp_file_path], check=True)
 
         # Clean up
         os.unlink(temp_file_path)
