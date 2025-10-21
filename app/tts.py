@@ -39,7 +39,7 @@ class ChatterboxTTS:
         wav = ChatterboxTTS._instance.model.generate(
                 text,
                 audio_prompt_path= ChatterboxTTS._sample_path,
-                exaggeration=1.0,
+                exaggeration=0.0,
                 cfg_weight=0.8
             )
 
