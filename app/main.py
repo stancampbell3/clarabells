@@ -21,10 +21,14 @@ bearer_scheme = HTTPBearer()
 # Dummy token for illustration; in practice, use a secure method to manage tokens
 FAKE_TOKEN = "mysecrettoken"
 
+# Initialize TTS with the voice sample for cloning
+sample_path = "./app/assets/clara_sample.wav"
+if not os.path.exists(sample_path):
+    raise RuntimeError(f"Voice sample not found at {sample_path}")
+tts_engine = ChatterboxTTS()  # our TTS wrapper instance, we manage the voice internally
 
 class SpeakRequest(BaseModel):
     text: Optional[str] = None
-
 
 @app.get("/health")
 async def health():
@@ -33,7 +37,6 @@ async def health():
     Returns JSON { "status": "ok" } with HTTP 200.
     """
     return {"status": "ok"}
-
 
 def _file_streamer(path: str, remove_after: bool = False):
     """Return a generator that yields file chunks and optionally removes the file after streaming."""
@@ -52,7 +55,6 @@ def _file_streamer(path: str, remove_after: bool = False):
                 except Exception:
                     logger.exception("Failed to remove temporary file: %s", path)
     return _gen()
-
 
 @app.post("/clara/api/v1/speak")
 async def speak(payload: SpeakRequest, auth: HTTPAuthorizationCredentials = Depends(bearer_scheme)):
@@ -74,7 +76,7 @@ async def speak(payload: SpeakRequest, auth: HTTPAuthorizationCredentials = Depe
         tmp_path = tmp.name
         tmp.close()
         try:
-            ChatterboxTTS.synthesize_to_wav(payload.text, tmp_path)
+            tts_engine.synthesize_to_wav(payload.text, tmp_path)  # Use the instance method
             return StreamingResponse(_file_streamer(tmp_path, remove_after=True), media_type="audio/wav")
         except Exception:
             logger.exception("TTS synthesis failed")

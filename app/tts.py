@@ -15,6 +15,7 @@ class ChatterboxTTS:
     """Wrapper for ChatterboxTTS model with lazy loading."""
 
     _instance: Optional['_ChatterboxModel'] = None
+    _sample_path: str = "app/assets/clara_sample.wav"  # Path to the voice sample for cloning
 
     @staticmethod
     def synthesize_to_wav(text: str, out_path: str, rate: int = 22050):
@@ -34,7 +35,13 @@ class ChatterboxTTS:
             ChatterboxTTS._instance = _ChatterboxModel()
 
         # Generate audio
-        wav = ChatterboxTTS._instance.model.generate(text)
+        # wav = ChatterboxTTS._instance.model.generate(text)
+        wav = ChatterboxTTS._instance.model.generate(
+                text,
+                audio_prompt_path= ChatterboxTTS._sample_path,
+                exaggeration=1.0,
+                cfg_weight=0.8
+            )
 
         # Save to file using soundfile directly
         # Convert from torch tensor to numpy array and transpose if needed
