@@ -1,11 +1,12 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, WebSocket
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+import asyncio
 import logging
 import os
 import tempfile
-from typing import Optional
+from typing import Optional, List
 
 from app.tts import ChatterboxTTS
 
@@ -29,6 +30,9 @@ tts_engine = ChatterboxTTS()  # our TTS wrapper instance, we manage the voice in
 
 class SpeakRequest(BaseModel):
     text: Optional[str] = None
+
+# List to hold connected WebSocket clients
+connected_clients: List[WebSocket] = []
 
 @app.get("/health")
 async def health():
@@ -69,6 +73,9 @@ async def speak(payload: SpeakRequest, auth: HTTPAuthorizationCredentials = Depe
         raise HTTPException(status_code=403, detail="Invalid or expired token")
 
     logger.info("Received /speak request. text present=%s", bool(payload.text))
+    if payload.text:
+        # Broadcast the text to all connected WebSocket clients
+        asyncio.create_task(broadcast_message(payload.text))
 
     # If text provided, synthesize to temp wav and stream it
     if payload.text:
@@ -98,3 +105,23 @@ async def speak(payload: SpeakRequest, auth: HTTPAuthorizationCredentials = Depe
 
     logger.warning("No text provided and no .wav files found in %s", audio_dir)
     raise HTTPException(status_code=404, detail="No audio available")
+
+@app.websocket("/ws/notify")
+async def websocket_notify(websocket: WebSocket):
+    await websocket.accept()
+    connected_clients.append(websocket)
+    try:
+        while True:
+            # Keep the connection alive; no need to receive messages from clients
+            await websocket.receive_text()
+    except Exception:
+        pass
+    finally:
+        connected_clients.remove(websocket)
+
+async def broadcast_message(message: str):
+    for client in connected_clients:
+        try:
+            await client.send_text(message)
+        except Exception:
+            pass
