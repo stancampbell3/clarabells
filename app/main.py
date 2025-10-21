@@ -1,16 +1,22 @@
 from fastapi import FastAPI, Depends, HTTPException, WebSocket
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from pathlib import Path
 import asyncio
 import logging
 import os
 import tempfile
+import uuid
 from typing import Optional, List
 
 from app.tts import ChatterboxTTS
 
 app = FastAPI(title="Clara API", version="0.1.0")
+
+# Audio cache directory
+audio_cache_dir = Path("audio")
+audio_cache_dir.mkdir(exist_ok=True)
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -73,38 +79,26 @@ async def speak(payload: SpeakRequest, auth: HTTPAuthorizationCredentials = Depe
         raise HTTPException(status_code=403, detail="Invalid or expired token")
 
     logger.info("Received /speak request. text present=%s", bool(payload.text))
-    if payload.text:
-        # Broadcast the text to all connected WebSocket clients
-        asyncio.create_task(broadcast_message(payload.text))
+    if not payload.text:
+        raise HTTPException(status_code=400, detail="No text provided for synthesis")
+    else:
+        # Generate a GUID for the text (simple hash for caching; use actual hash if needed)
+        text_hash = str(hash(payload.text))
+        cached_file = audio_cache_dir / f"{text_hash}.wav"
 
-    # If text provided, synthesize to temp wav and stream it
-    if payload.text:
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-        tmp_path = tmp.name
-        tmp.close()
-        try:
-            tts_engine.synthesize_to_wav(payload.text, tmp_path)  # Use the instance method
-            return StreamingResponse(_file_streamer(tmp_path, remove_after=True), media_type="audio/wav")
-        except Exception:
-            logger.exception("TTS synthesis failed")
-            # ensure cleanup
-            try:
-                os.remove(tmp_path)
-            except Exception:
-                pass
-            raise HTTPException(status_code=500, detail="TTS synthesis failed")
+        if not cached_file.exists():
+            ChatterboxTTS.synthesize_to_wav(payload.text, str(cached_file))
 
-    # No text: attempt to stream an existing wav file from ./audio
-    audio_dir = "./audio"
-    if os.path.isdir(audio_dir):
-        for fn in os.listdir(audio_dir):
-            if fn.lower().endswith('.wav'):
-                file_path = os.path.join(audio_dir, fn)
-                logger.info("Streaming existing audio file: %s", file_path)
-                return StreamingResponse(_file_streamer(file_path, remove_after=False), media_type="audio/wav")
+        # Broadcast the new audio GUID to connected WebSocket clients
+        asyncio.create_task(broadcast_message(text_hash))
+        return FileResponse(cached_file, media_type="audio/wav")
 
-    logger.warning("No text provided and no .wav files found in %s", audio_dir)
-    raise HTTPException(status_code=404, detail="No audio available")
+@app.get("/audio/{guid}")
+async def get_audio(guid: str):
+    cached_file = audio_cache_dir / f"{guid}.wav"
+    if not cached_file.exists():
+        raise HTTPException(status_code=404, detail="Audio not found")
+    return FileResponse(cached_file, media_type="audio/wav")
 
 @app.websocket("/ws/notify")
 async def websocket_notify(websocket: WebSocket):
