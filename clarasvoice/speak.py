@@ -30,19 +30,47 @@ def detect_format_from_magic(first_bytes, content_type=None):
     return None
 
 
-def choose_player_cmd(system, audio_format):
+def get_player_candidates(system, audio_format):
+    """Return list of player command candidates with optimized settings for reliable playback."""
+    candidates = []
+
     if system == 'Linux':
         if audio_format == 'mp3':
-            return ['mpg123']
-        # prefer aplay for PCM WAV if available
-        if shutil.which('aplay'):
-            return ['aplay']
-        return ['mpg123']  # fallback
-    if system == 'Darwin':
-        return ['afplay']
-    if system == 'Windows':
-        return ['cmd', '/c', 'start', '/wait']
-    raise RuntimeError(f"Unsupported OS: {system}")
+            candidates = [
+                ['mpg123', '-q'],
+                ['mpv', '--really-quiet'],
+                ['ffplay', '-nodisp', '-autoexit', '-loglevel', 'quiet'],
+                ['play', '-q']
+            ]
+        else:  # wav or other
+            candidates = [
+                ['mpv', '--really-quiet'],
+                ['ffplay', '-nodisp', '-autoexit', '-loglevel', 'quiet'],
+                ['aplay', '--buffer-size=8192'],  # Large buffer prevents underruns
+                ['play', '-q'],
+                ['mpg123', '-q']
+            ]
+    elif system == 'Darwin':
+        candidates = [
+            ['afplay'],
+            ['mpv', '--really-quiet'],
+            ['ffplay', '-nodisp', '-autoexit', '-loglevel', 'quiet']
+        ]
+    elif system == 'Windows':
+        candidates = [['cmd', '/c', 'start', '/wait']]
+    else:
+        raise RuntimeError(f"Unsupported OS: {system}")
+
+    # Filter to only available players
+    available = []
+    for cmd in candidates:
+        if cmd[0].lower() in ('cmd', 'start') or shutil.which(cmd[0]):
+            available.append(cmd)
+
+    if not available:
+        raise RuntimeError(f"No suitable audio player found for OS: {system}. Try installing 'mpv', 'ffplay', 'aplay' (alsa-utils), 'mpg123', or 'sox'.")
+
+    return available
 
 
 def main():
@@ -100,15 +128,34 @@ def main():
             temp_file_path = tmp.name
 
         system = platform.system()
-        player_cmd = choose_player_cmd(system, audio_format)
+        player_candidates = get_player_candidates(system, audio_format)
 
-        # Ensure player exists on non-Windows
-        if system in ('Linux', 'Darwin') and not shutil.which(player_cmd[0]):
-            raise RuntimeError(f"Audio player '{player_cmd[0]}' not found. Install it or update your configuration.")
+        # Try each player in order until one succeeds
+        played = False
+        last_error = None
+        for player_cmd in player_candidates:
+            try:
+                # Suppress stderr to avoid "stream is not nice" messages
+                subprocess.run(
+                    player_cmd + [temp_file_path],
+                    check=True,
+                    stderr=subprocess.PIPE,
+                    stdout=subprocess.PIPE
+                )
+                played = True
+                print(f"Audio played successfully with {player_cmd[0]}.")
+                break
+            except subprocess.CalledProcessError as e:
+                last_error = e
+                continue
+            except Exception as e:
+                last_error = e
+                continue
 
-        subprocess.run(player_cmd + [temp_file_path], check=True)
+        if not played:
+            raise RuntimeError(f"All audio players failed. Last error: {last_error}")
+
         os.unlink(temp_file_path)
-        print("Audio played successfully.")
 
     except requests.RequestException as e:
         print(f"Request failed: {e}")

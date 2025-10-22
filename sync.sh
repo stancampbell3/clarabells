@@ -1,2 +1,2 @@
 #!/usr/bin/bash
-scp -vR . stan.campbell@dendrite:/Users/stan.campbell/Tools/clara/
+rsync -avz --exclude='.git' --exclude='__pycache__' --exclude='*.pyc' . stan.campbell@dendrite:/Users/stan.campbell/Tools/clara/

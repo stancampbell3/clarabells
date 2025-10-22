@@ -17,8 +17,62 @@ cd /home/stanc/Development/clara
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
+Or use the provided scripts:
+```bash
+# Start in background
+./scripts/start_server.sh
+
+# Start in foreground (shows logs)
+./scripts/start_server.sh --foreground
+
+# Stop the server
+./scripts/stop_server.sh
+```
+
 Health endpoint:
 GET /health -> { "status": "ok" }
+
+# Audio Playback Setup
+
+Clara uses external audio players for reliable playback. Check your system setup:
+
+```bash
+./scripts/check_audio_setup.sh
+```
+
+**Recommended players** (in priority order):
+- **Linux**: `mpv` (most reliable), `ffplay`, `aplay`, `mpg123`, `sox`
+- **macOS**: `afplay` (built-in), `mpv`, `ffplay`
+- **Windows**: Uses built-in `cmd` (no installation needed)
+
+**Quick install** (Linux):
+```bash
+sudo apt-get install mpv ffmpeg alsa-utils
+```
+
+**Quick install** (macOS):
+```bash
+brew install mpv ffmpeg
+```
+
+For detailed troubleshooting and configuration, see: **[docs/AUDIO_PLAYBACK.md](docs/AUDIO_PLAYBACK.md)**
+
+## Using Clara
+
+**Test the speak endpoint** (without playback):
+```bash
+python clarasvoice/speak.py --text "Hello world" --host 127.0.0.1
+```
+
+**Test with audio playback**:
+```bash
+python clarasvoice/speak.py --text "Hello world" --host 127.0.0.1 --outloud
+```
+
+**Run attention listener** (receives WebSocket notifications):
+```bash
+python clarasattention/attention.py --host 127.0.0.1 --port 8000
+```
 
 
 # Docker
