@@ -1,3 +1,2 @@
 #!/usr/bin/bash
-cp -R . ~/Public/clara/
-
+scp -vR . stan.campbell@dendrite:/Users/stan.campbell/Tools/clara/

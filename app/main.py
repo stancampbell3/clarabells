@@ -32,7 +32,6 @@ FAKE_TOKEN = "mysecrettoken"
 sample_path = "./app/assets/clara_sample.wav"
 if not os.path.exists(sample_path):
     raise RuntimeError(f"Voice sample not found at {sample_path}")
-tts_engine = ChatterboxTTS()  # our TTS wrapper instance, we manage the voice internally
 
 class SpeakRequest(BaseModel):
     text: Optional[str] = None
