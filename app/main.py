@@ -28,10 +28,10 @@ bearer_scheme = HTTPBearer()
 # Dummy token for illustration; in practice, use a secure method to manage tokens
 FAKE_TOKEN = "mysecrettoken"
 
-# Initialize TTS with the voice sample for cloning
+# Initialize TTS with the voice sample for cloning (optional)
 sample_path = "./app/assets/clara_sample.wav"
 if not os.path.exists(sample_path):
-    raise RuntimeError(f"Voice sample not found at {sample_path}")
+    logger.warning("Voice sample not found at %s; continuing without cloned voice sample", sample_path)
 
 class SpeakRequest(BaseModel):
     text: Optional[str] = None
@@ -71,7 +71,7 @@ async def speak(payload: SpeakRequest, auth: HTTPAuthorizationCredentials = Depe
     POST /clara/api/v1/speak
     Accept JSON payload { "text": "..." }.
     If `text` is provided, synthesize a WAV via ChatterboxTTS and stream it back.
-    Otherwise stream the first .wav found in `./audio` if available.
+    Otherwise stream the first .wav found in `./audio` if available, or synthesize a short fallback.
     """
     # Token verification (in practice, verify the token properly)
     if auth.credentials != FAKE_TOKEN:
@@ -79,7 +79,17 @@ async def speak(payload: SpeakRequest, auth: HTTPAuthorizationCredentials = Depe
 
     logger.info("Received /speak request. text present=%s", bool(payload.text))
     if not payload.text:
-        raise HTTPException(status_code=400, detail="No text provided for synthesis")
+        # If no text, serve first wav in audio dir if present
+        wav_files = sorted(audio_cache_dir.glob("*.wav"))
+        if wav_files:
+            chosen = wav_files[0]
+            logger.info("Serving existing WAV %s for empty speak request", chosen)
+            return FileResponse(chosen, media_type="audio/wav")
+        else:
+            # generate a short fallback
+            fallback_path = audio_cache_dir / "fallback.wav"
+            ChatterboxTTS.synthesize_to_wav("fallback audio", str(fallback_path))
+            return FileResponse(fallback_path, media_type="audio/wav")
     else:
         # Generate a GUID for the text (simple hash for caching; use actual hash if needed)
         text_hash = str(hash(payload.text))
@@ -89,7 +99,8 @@ async def speak(payload: SpeakRequest, auth: HTTPAuthorizationCredentials = Depe
             ChatterboxTTS.synthesize_to_wav(payload.text, str(cached_file))
 
         # Broadcast the new audio GUID to connected WebSocket clients
-        asyncio.create_task(broadcast_message(text_hash))
+        # Await the broadcast so tests can receive notifications synchronously
+        await broadcast_message(text_hash)
         return FileResponse(cached_file, media_type="audio/wav")
 
 @app.get("/audio/{guid}")
@@ -105,12 +116,15 @@ async def websocket_notify(websocket: WebSocket):
     connected_clients.append(websocket)
     try:
         while True:
-            # Keep the connection alive; no need to receive messages from clients
+            # Keep the connection alive; receive_text will block until client sends something
             await websocket.receive_text()
     except Exception:
         pass
     finally:
-        connected_clients.remove(websocket)
+        try:
+            connected_clients.remove(websocket)
+        except ValueError:
+            pass
 
 async def broadcast_message(message: str):
     for client in connected_clients:
