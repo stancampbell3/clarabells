@@ -101,7 +101,9 @@ async def speak(payload: SpeakRequest, auth: HTTPAuthorizationCredentials = Depe
         # Broadcast the new audio GUID to connected WebSocket clients
         # Await the broadcast so tests can receive notifications synchronously
         await broadcast_message(text_hash)
-        return FileResponse(cached_file, media_type="audio/wav")
+        # Include the GUID in a response header so external clients can reference it
+        headers = {"X-Clara-Audio-GUID": text_hash}
+        return FileResponse(cached_file, media_type="audio/wav", headers=headers)
 
 @app.get("/audio/{guid}")
 async def get_audio(guid: str):
