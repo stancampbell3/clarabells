@@ -36,3 +36,4 @@ Thumbs.db
 # Large model storage (do not commit)
 models/
 /clarasvoice/claras_clutch.json
+/audio/
