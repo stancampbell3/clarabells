@@ -1,0 +1,9 @@
+{
+  "host": "0.0.0.0",
+  "port": 8000,
+  "audio_cache_ttl_seconds": 3600,
+  "audio_cache_cleanup_interval_seconds": 300,
+  "bearer_token": "mysecrettoken",
+  "_comment": "TTL is time-to-live in seconds. Generated audio files older than this will be deleted. Set to 0 to disable cleanup. Cleanup runs every audio_cache_cleanup_interval_seconds."
+}
+

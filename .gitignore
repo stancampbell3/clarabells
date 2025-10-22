@@ -37,3 +37,7 @@ Thumbs.db
 models/
 /clarasvoice/claras_clutch.json
 /audio/
+
+# Configuration (may contain sensitive tokens)
+clara_config.json
+

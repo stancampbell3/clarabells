@@ -16,8 +16,18 @@ PID_FILE="${PID_DIR}/server.pid"
 LOG_DIR="${PROJECT_ROOT}/logs"
 LOG_FILE="${LOG_DIR}/server.log"
 
-HOST="${HOST:-0.0.0.0}"
-PORT="${PORT:-8000}"
+# Try to read host/port from clara_config.json if it exists
+CONFIG_FILE="${PROJECT_ROOT}/clara_config.json"
+if [ -f "$CONFIG_FILE" ] && command -v python3 &> /dev/null; then
+  CONFIG_HOST=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('host', '0.0.0.0'))" 2>/dev/null || echo "0.0.0.0")
+  CONFIG_PORT=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('port', 8000))" 2>/dev/null || echo "8000")
+else
+  CONFIG_HOST="0.0.0.0"
+  CONFIG_PORT="8000"
+fi
+
+HOST="${HOST:-$CONFIG_HOST}"
+PORT="${PORT:-$CONFIG_PORT}"
 FOREGROUND=0
 
 show_help() {

@@ -2,7 +2,20 @@
 
 This repository contains a minimal FastAPI app with a single health check endpoint.
 
-Quick start (install dev dependencies and run tests):
+## Configuration
+
+Clara uses a `clara_config.json` file for server configuration. Copy the example and customize:
+
+```bash
+cp clara_config.json.example clara_config.json
+# Edit clara_config.json to set host, port, audio TTL, and bearer token
+```
+
+See **[docs/CONFIGURATION.md](docs/CONFIGURATION.md)** for detailed configuration options.
+
+## Quick Start
+
+Install dev dependencies and run tests:
 
 ```bash
 cd /home/stanc/Development/clara

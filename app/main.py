@@ -4,16 +4,45 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from pathlib import Path
+from contextlib import asynccontextmanager
 import asyncio
 import logging
 import os
-import tempfile
-import uuid
+import time
 from typing import Optional, List
 
 from app.tts import ChatterboxTTS
+from app.config import config
 
-app = FastAPI(title="Clara API", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for startup and shutdown events."""
+    # Startup
+    logger.info(f"Starting Clara server on {config.host}:{config.port}")
+    logger.info(f"Audio cache TTL: {config.audio_cache_ttl_seconds}s")
+    logger.info(f"Audio cache cleanup interval: {config.audio_cache_cleanup_interval_seconds}s")
+
+    cleanup_task = None
+    if config.audio_cache_ttl_seconds > 0:
+        cleanup_task = asyncio.create_task(cleanup_expired_audio_files())
+        logger.info("Audio cleanup background task started")
+    else:
+        logger.info("Audio cleanup disabled (TTL = 0)")
+
+    yield
+
+    # Shutdown
+    if cleanup_task:
+        cleanup_task.cancel()
+        try:
+            await cleanup_task
+        except asyncio.CancelledError:
+            pass
+    logger.info("Clara server shutting down")
+
+
+app = FastAPI(title="Clara API", version="0.1.0", lifespan=lifespan)
 
 # Audio cache directory
 audio_cache_dir = Path("audio")
@@ -26,8 +55,6 @@ logger = logging.getLogger(__name__)
 # Bearer token authentication
 bearer_scheme = HTTPBearer()
 
-# Dummy token for illustration; in practice, use a secure method to manage tokens
-FAKE_TOKEN = "mysecrettoken"
 
 # Initialize TTS with the voice sample for cloning (optional)
 sample_path = "./app/assets/clara_sample.wav"
@@ -75,22 +102,13 @@ async def speak(payload: SpeakRequest, auth: HTTPAuthorizationCredentials = Depe
     Otherwise stream the first .wav found in `./audio` if available, or synthesize a short fallback.
     """
     # Token verification (in practice, verify the token properly)
-    if auth.credentials != FAKE_TOKEN:
+    if auth.credentials != config.bearer_token:
         raise HTTPException(status_code=403, detail="Invalid or expired token")
 
     logger.info("Received /speak request. text present=%s", bool(payload.text))
     if not payload.text:
-        # If no text, serve first wav in audio dir if present
-        wav_files = sorted(audio_cache_dir.glob("*.wav"))
-        if wav_files:
-            chosen = wav_files[0]
-            logger.info("Serving existing WAV %s for empty speak request", chosen)
-            return FileResponse(chosen, media_type="audio/wav")
-        else:
-            # generate a short fallback
-            fallback_path = audio_cache_dir / "fallback.wav"
-            ChatterboxTTS.synthesize_to_wav("fallback audio", str(fallback_path))
-            return FileResponse(fallback_path, media_type="audio/wav")
+        fallback_path = Path("./app/assets/masters_of_the_earth.wav")
+        return FileResponse(fallback_path, media_type="audio/wav")
     else:
         # Generate a GUID for the text (simple hash for caching; use actual hash if needed)
         text_hash = str(hash(payload.text))
@@ -146,3 +164,40 @@ async def broadcast_message(message: str):
             await client.send_text(message)
         except Exception:
             pass
+
+
+async def cleanup_expired_audio_files():
+    """Background task to periodically clean up expired audio files."""
+    while True:
+        try:
+            await asyncio.sleep(config.audio_cache_cleanup_interval_seconds)
+
+            if config.audio_cache_ttl_seconds <= 0:
+                # TTL disabled
+                continue
+
+            now = time.time()
+            ttl = config.audio_cache_ttl_seconds
+            deleted_count = 0
+
+            for audio_file in audio_cache_dir.glob("*.wav"):
+                try:
+                    # Skip protected files in assets directory
+                    if "assets" in str(audio_file):
+                        continue
+
+                    # Check file age
+                    file_age = now - audio_file.stat().st_mtime
+                    if file_age > ttl:
+                        audio_file.unlink()
+                        deleted_count += 1
+                        logger.info(f"Deleted expired audio file: {audio_file.name} (age: {file_age:.0f}s)")
+                except Exception as e:
+                    logger.error(f"Failed to delete {audio_file}: {e}")
+
+            if deleted_count > 0:
+                logger.info(f"Cleaned up {deleted_count} expired audio file(s)")
+
+        except Exception as e:
+            logger.error(f"Error in cleanup task: {e}")
+
