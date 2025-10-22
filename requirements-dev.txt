@@ -7,3 +7,6 @@ pytest-asyncio>=0.20.0
 
 # HTTP testing client
 httpx>=0.24.0
+
+# Parameter efficient fine-tuning library
+peft>=0.17.1

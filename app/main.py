@@ -1,3 +1,4 @@
+from audioread import audio_open
 from fastapi import FastAPI, Depends, HTTPException, WebSocket
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import FileResponse
@@ -96,7 +97,18 @@ async def speak(payload: SpeakRequest, auth: HTTPAuthorizationCredentials = Depe
         cached_file = audio_cache_dir / f"{text_hash}.wav"
 
         if not cached_file.exists():
-            ChatterboxTTS.synthesize_to_wav(payload.text, str(cached_file))
+            try:
+                ChatterboxTTS.synthesize_to_wav(payload.text, str(cached_file))
+            except Exception as e:
+                logger.error("TTS synthesis failed: %s. Falling back to masters_of_the_earth.wav", e)
+                # Fall back to masters_of_the_earth.wav
+                fallback_file = Path("./app/assets/masters_of_the_earth.wav")
+                if fallback_file.exists():
+                    logger.info("Using fallback audio: masters_of_the_earth.wav")
+                    return FileResponse(fallback_file, media_type="audio/wav")
+                else:
+                    logger.error("Fallback file not found: %s", fallback_file)
+                    raise HTTPException(status_code=500, detail="TTS synthesis failed and fallback audio not available")
 
         # Broadcast the new audio GUID to connected WebSocket clients
         # Await the broadcast so tests can receive notifications synchronously

@@ -113,4 +113,12 @@ class _ChatterboxModel:
 
         logger.info("Loading ChatterboxTTS model from HuggingFace Hub (this may take a moment)...")
         self.model = _ChatterboxTTS.from_pretrained(device=device)
+
+        # Set attention implementation on the wrapped model
+        if hasattr(self.model, 'set_attn_implementation'):
+            self.model.set_attn_implementation('eager')
+            logger.info("Set attention implementation to 'eager'")
+        else:
+            logger.warning("Model does not have set_attn_implementation method")
+
         logger.info("ChatterboxTTS model loaded successfully")
