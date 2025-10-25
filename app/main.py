@@ -1,7 +1,7 @@
 from audioread import audio_open
 from fastapi import FastAPI, Depends, HTTPException, WebSocket
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 from pathlib import Path
 from contextlib import asynccontextmanager
@@ -9,9 +9,10 @@ import asyncio
 import logging
 import os
 import time
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 
 from app.tts import ChatterboxTTS
+from app.cerebrum_client import CerebrumClient
 from app.config import config
 
 
@@ -64,8 +65,26 @@ if not os.path.exists(sample_path):
 class SpeakRequest(BaseModel):
     text: Optional[str] = None
 
+class PromptRequest(BaseModel):
+    """Request model for /prompt endpoint."""
+    query: str
+    facts: Optional[List[str]] = None
+    rules: Optional[str] = None
+    use_clips: bool = True
+
+class PromptResponse(BaseModel):
+    """Response model for /prompt endpoint."""
+    query: str
+    response: str
+    reasoning: Optional[Dict[str, Any]] = None
+    clips_output: Optional[str] = None
+
 # List to hold connected WebSocket clients
 connected_clients: List[WebSocket] = []
+
+# Global CLIPS session for logic-informed responses
+_cerebrum_client: Optional[CerebrumClient] = None
+_cerebrum_session = None
 
 @app.get("/health")
 async def health():
@@ -164,6 +183,114 @@ async def broadcast_message(message: str):
             await client.send_text(message)
         except Exception:
             pass
+
+
+async def _get_cerebrum_session():
+    """Get or create a persistent CLIPS session."""
+    global _cerebrum_client, _cerebrum_session
+
+    try:
+        if _cerebrum_client is None:
+            cerebrum_url = os.getenv("CEREBRUM_API_URL", "http://localhost:8080")
+            _cerebrum_client = CerebrumClient(base_url=cerebrum_url)
+
+        if _cerebrum_session is None:
+            _cerebrum_session = await _cerebrum_client.create_session(user_id="clara-voice")
+            logger.info(f"Created CLIPS session: {_cerebrum_session.session_id}")
+
+        return _cerebrum_session
+    except Exception as e:
+        logger.error(f"Failed to get CLIPS session: {e}")
+        raise
+
+
+@app.post("/clara/api/v1/prompt", response_model=PromptResponse)
+async def prompt(
+    payload: PromptRequest,
+    auth: HTTPAuthorizationCredentials = Depends(bearer_scheme)
+):
+    """
+    POST /clara/api/v1/prompt
+
+    Accept a natural language query and optionally facts/rules.
+    Use the CLIPS expert system to reason about the query and provide a logic-informed response.
+
+    Request body:
+    {
+        "query": "What is the capital of France?",
+        "facts": ["(country france capital paris)"],
+        "rules": "(defrule find-capital (country ?name capital ?city) => ...)",
+        "use_clips": true
+    }
+    """
+    if auth.credentials != config.bearer_token:
+        raise HTTPException(status_code=403, detail="Invalid or expired token")
+
+    logger.info(f"Received /prompt request: {payload.query}")
+
+    try:
+        session = await _get_cerebrum_session()
+
+        # Build CLIPS script with optional facts and rules
+        clips_script_parts = []
+
+        # Add user-provided rules
+        if payload.rules:
+            clips_script_parts.append(payload.rules)
+
+        # Add user-provided facts
+        if payload.facts:
+            for fact in payload.facts:
+                if not fact.startswith("("):
+                    fact = f"({fact})"
+                clips_script_parts.append(f"(assert {fact})")
+
+        # Add a query to find relevant information
+        # This is a simple approach - assert the query as a fact to trigger rules
+        clips_script_parts.append(f"(assert (query \"{payload.query}\"))")
+
+        # Run inference
+        clips_script_parts.append("(run)")
+
+        clips_script = "\n".join(clips_script_parts)
+
+        logger.debug(f"CLIPS script:\n{clips_script}")
+
+        clips_result = await session.eval(clips_script)
+        clips_output = clips_result.get("stdout", "")
+
+        logger.info(f"CLIPS evaluation completed. Output length: {len(clips_output)}")
+
+        # Parse the query context for reasoning explanation
+        reasoning = {
+            "approach": "CLIPS expert system",
+            "session_id": session.session_id,
+            "has_facts": bool(payload.facts),
+            "has_rules": bool(payload.rules),
+            "clips_output_length": len(clips_output)
+        }
+
+        # Generate a response based on CLIPS output
+        if clips_output.strip():
+            response = f"Based on the expert system reasoning: {clips_output[:200]}"
+            if len(clips_output) > 200:
+                response += "..."
+        else:
+            response = "The expert system could not derive a conclusive answer based on the provided facts and rules."
+
+        return PromptResponse(
+            query=payload.query,
+            response=response,
+            reasoning=reasoning,
+            clips_output=clips_output if len(clips_output) < 1000 else clips_output[:1000] + "..."
+        )
+
+    except Exception as e:
+        logger.error(f"Error processing prompt: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to process prompt: {str(e)}"
+        )
 
 
 async def cleanup_expired_audio_files():
