@@ -157,8 +157,18 @@ async def speak(payload: SpeakRequest, auth: HTTPAuthorizationCredentials = Depe
 @app.get("/audio/{guid}")
 async def get_audio(guid: str):
     cached_file = audio_cache_dir / f"{guid}.wav"
+    logger.info(f"Audio request for GUID: {guid}")
+    logger.info(f"Looking for file: {cached_file}")
+
     if not cached_file.exists():
+        logger.warning(f"Audio file not found: {cached_file}")
+        # List available files for debugging
+        available_files = list(audio_cache_dir.glob("*.wav"))
+        logger.warning(f"Available audio files: {[f.name for f in available_files[:5]]}")
         raise HTTPException(status_code=404, detail="Audio not found")
+
+    file_size = cached_file.stat().st_size
+    logger.info(f"Serving audio file: {cached_file} ({file_size} bytes)")
     return FileResponse(cached_file, media_type="audio/wav")
 
 @app.websocket("/ws/notify")

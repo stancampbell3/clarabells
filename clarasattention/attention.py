@@ -97,12 +97,17 @@ async def listen_and_play(host: str, port: int):
             print(f"Received GUID: {guid}")
             # Fetch audio stream
             api_url = f"http://{host}:{port}/audio/{guid}"
+            print(f"  → Fetching from: {api_url}")
             try:
                 response = requests.get(api_url, stream=True, timeout=30)
                 response.raise_for_status()
+                print(f"  ✓ HTTP {response.status_code} received")
 
                 # Try to detect extension from content-type; default to .wav
                 ct = response.headers.get('content-type', '')
+                content_length = response.headers.get('content-length', 'unknown')
+                print(f"  ✓ Content-Type: {ct}, Length: {content_length}")
+
                 if ct.startswith('audio/mpeg') or ct.startswith('audio/mp3'):
                     suffix = '.mp3'
                     audio_format = 'mp3'
@@ -114,48 +119,84 @@ async def listen_and_play(host: str, port: int):
                     audio_format = 'wav'
 
                 player_cmds = get_player_cmd(audio_format)
+                print(f"  ✓ Detected audio format: {audio_format}")
+                print(f"  ✓ Available players: {[cmd[0] for cmd in player_cmds]}")
 
+                # Write to temp file and ensure it's fully written
+                bytes_written = 0
                 with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temp_file:
-                    # Write first chunk and stream the rest
                     for chunk in response.iter_content(chunk_size=8192):
                         if chunk:
                             temp_file.write(chunk)
+                            bytes_written += len(chunk)
                     temp_file_path = temp_file.name
+                    # Explicitly flush before closing context manager
+                    temp_file.flush()
+
+                print(f"  ✓ Wrote {bytes_written} bytes to {temp_file_path}")
+
+                # Verify file exists and has content
+                if not os.path.exists(temp_file_path):
+                    print(f"  ✗ ERROR: Temp file does not exist at {temp_file_path}")
+                else:
+                    file_size = os.path.getsize(temp_file_path)
+                    print(f"  ✓ File exists, size: {file_size} bytes")
 
                 # Try each player in order until one succeeds
                 played = False
                 last_error = None
-                for player_cmd in player_cmds:
+                for i, player_cmd in enumerate(player_cmds, 1):
+                    print(f"  → Trying player {i}/{len(player_cmds)}: {player_cmd[0]}")
                     try:
-                        # Suppress stderr to avoid "stream is not nice" messages
+                        # Run without suppressing output to see what's happening
+                        print(f"    Running: {' '.join(player_cmd + [temp_file_path])}")
                         result = subprocess.run(
                             player_cmd + [temp_file_path],
                             check=True,
-                            stderr=subprocess.PIPE,
-                            stdout=subprocess.PIPE
+                            timeout=30
                         )
                         played = True
-                        print(f"Audio played successfully with {player_cmd[0]}.")
+                        print(f"  ✓ Audio played successfully with {player_cmd[0]}.")
                         break
+                    except subprocess.TimeoutExpired:
+                        print(f"    ✗ Timeout waiting for {player_cmd[0]}")
+                        last_error = "timeout"
+                        continue
                     except subprocess.CalledProcessError as e:
+                        print(f"    ✗ {player_cmd[0]} exited with code {e.returncode}")
                         last_error = e
-                        # Try next player
+                        continue
+                    except FileNotFoundError as e:
+                        print(f"    ✗ {player_cmd[0]} not found in PATH")
+                        last_error = e
                         continue
                     except Exception as e:
+                        print(f"    ✗ {player_cmd[0]} error: {type(e).__name__}: {e}")
                         last_error = e
                         continue
 
-                if not played and last_error:
-                    print(f"All players failed. Last error: {last_error}")
+                if not played:
+                    print(f"  ✗ All players failed. Last error: {last_error}")
+                    print(f"  ℹ File is still at: {temp_file_path}")
+                    print(f"  ℹ Try playing manually: <player-cmd> {temp_file_path}")
+                else:
+                    # Clean up temp file only if playback succeeded
+                    try:
+                        os.unlink(temp_file_path)
+                        print(f"  ✓ Cleaned up temp file")
+                    except Exception:
+                        pass
 
-                # Clean up temp file
-                try:
-                    os.unlink(temp_file_path)
-                except Exception:
-                    pass
-
+            except requests.exceptions.ConnectionError as e:
+                print(f"✗ Failed to connect to server: {e}")
+                print(f"  Make sure Clara server is running on {host}:{port}")
+            except requests.exceptions.HTTPError as e:
+                print(f"✗ HTTP error fetching audio: {e.response.status_code}")
+                if e.response.status_code == 404:
+                    print(f"  Audio file not found for GUID: {guid}")
+                    print(f"  Check if /audio/{guid} exists on server")
             except Exception as e:
-                print(f"Failed to fetch or play audio: {e}")
+                print(f"✗ Error: {type(e).__name__}: {e}")
 
 
 def main():
